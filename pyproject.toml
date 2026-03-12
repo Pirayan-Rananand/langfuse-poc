@@ -12,4 +12,7 @@ dependencies = [
     "langchain-openai>=1.1.11",
     "pydantic-settings>=2.13.1",
     "langfuse>=3.0.0",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
+    "httpx>=0.28.1",
 ]

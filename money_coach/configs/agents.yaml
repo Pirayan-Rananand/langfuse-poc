@@ -1,7 +1,7 @@
 agents:
   clarifier:
     name: "clarifier"
-    model: "gemini-2.5-flash"
+    model: "google/gemini-2.5-flash"
     prompts:
       instruction: |
         You are a financial context evaluator. Your only job is to decide whether the user's request has enough information to give useful, accurate financial advice.
@@ -20,7 +20,7 @@ agents:
 
   main:
     name: "main_llm"
-    model: "gemini-2.5-flash"
+    model: "google/gemini-2.5-flash"
     prompts:
       instruction: |
         You are an empathetic AI money coach specializing in helping people get out of debt and build financial stability.
