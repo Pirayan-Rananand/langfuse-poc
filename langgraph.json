@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "money_coach": "./money_coach/agent.py:graph"
+  },
+  "env": ".env"
+}
