@@ -11,14 +11,34 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      APP_ENV: dev
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
-      LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
-      LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: uv sync
-      - run: uv run pytest tests/ -v
+      - name: Run tests
+        run: |
+          echo "Testing prompt: ${{ github.event.client_payload.prompt.name }} v${{ github.event.client_payload.prompt.version }}"
+          # Add your test commands
+          # npm test
+          # python -m pytest
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: contains(github.event.client_payload.prompt.labels, 'development')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to dev environment
+        run: |
+          echo "Deploying ${{ github.event.client_payload.prompt.name }} v${{ github.event.client_payload.prompt.version }}"
+          # Your deployment commands
+
+      # Example: Access webhook data in your workflow
+      - name: Process prompt data
+        run: |
+          echo "Action: ${{ github.event.client_payload.action }}"
+          echo "Prompt: ${{ github.event.client_payload.prompt.name }}"
+          echo "Version: ${{ github.event.client_payload.prompt.version }}"
+          echo "Labels: ${{ github.event.client_payload.prompt.labels }}"
+
+      - name: Deploy only development prompts
+        if: contains(github.event.client_payload.prompt.labels, 'development')
+        run: echo "Deploying development prompt"

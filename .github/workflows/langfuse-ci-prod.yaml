@@ -1,4 +1,4 @@
-name: Langfuse Prompt CI
+name: Langfuse CI (prod)
 
 on:
   push:
