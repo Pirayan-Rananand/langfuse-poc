@@ -43,8 +43,9 @@ jobs:
         env:
           LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
           LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
+          PROMPT_JSON: ${{ toJson(github.event.client_payload.prompt) }}
         run: |
-          PROMPT_PAYLOAD=$(echo '${{ toJson(github.event.client_payload.prompt) }}' | \
+          PROMPT_PAYLOAD=$(echo "${PROMPT_JSON}" | \
             jq '{
               name: .name,
               type: .type,
