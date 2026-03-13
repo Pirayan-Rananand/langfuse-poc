@@ -1,9 +1,6 @@
 name: Langfuse CI (prod)
 
 on:
-  push:
-    branches:
-      - main
   repository_dispatch:
     types: [langfuse-prompt-update]
   workflow_dispatch:
