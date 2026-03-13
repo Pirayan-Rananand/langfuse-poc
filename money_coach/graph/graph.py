@@ -75,7 +75,7 @@ def build_graph(config: AppConfig):
     builder.add_node("clarify", clarify_node)
     builder.add_node("coach", coach_node)
     builder.add_edge(START, "clarify")
-    builder.add_conditional_edges("clarify", _route_after_clarify)
+    builder.add_conditional_edges("clarify", _route_after_clarify, {"coach": "coach", END: END})
     builder.add_edge("coach", END)
 
     return builder.compile()
