@@ -39,6 +39,24 @@ jobs:
           echo "Version: ${{ github.event.client_payload.prompt.version }}"
           echo "Labels: ${{ github.event.client_payload.prompt.labels }}"
 
-      - name: Deploy only production prompts
-        if: contains(github.event.client_payload.prompt.labels, 'production')
-        run: echo "Deploying production prompt"
+      - name: Promote prompt to prod Langfuse project
+        env:
+          LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
+          LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
+        run: |
+          PROMPT_PAYLOAD=$(echo '${{ toJson(github.event.client_payload.prompt) }}' | \
+            jq '{
+              name: .name,
+              type: .type,
+              prompt: .prompt,
+              labels: ["production"],
+              config: .config,
+              tags: .tags,
+              commitMessage: .commitMessage
+            }')
+
+          curl -f -X POST \
+            -u "${LANGFUSE_PROD_PUBLIC_KEY}:${LANGFUSE_PROD_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "${PROMPT_PAYLOAD}" \
+            https://cloud.langfuse.com/api/public/v2/prompts
