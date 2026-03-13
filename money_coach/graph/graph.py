@@ -10,17 +10,17 @@ Flow: START → clarify → END  (asks follow-up questions when context is thin)
 import os
 
 from dotenv import load_dotenv
-from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 
-from money_coach.chains.clarifier import ClarifyNode, build_clarifier
+from money_coach.chains.clarifier import build_clarifier
 from money_coach.configs import agent_config
 from money_coach.configs.model import AppConfig
-from money_coach.prompts import fetch_prompt
+from money_coach.graph.nodes import ClarifyNode, CoachNode
+from money_coach.utils import fetch_prompt
 from money_coach.state import State
-from money_coach.tools import (
+from money_coach.agent_tools import (
     budget_calculator,
     debt_payoff_calculator,
     dti_ratio_calculator,
@@ -57,18 +57,16 @@ def build_graph(config: AppConfig):
             ),
         )
     )
-    coach_graph = create_react_agent(
-        model=_make_llm(config.agents.main.model),
-        tools=_TOOLS,
-        prompt=fetch_prompt(
-            "money-coach-main",
-            fallback=config.agents.main.prompts.instruction,
-        ),
+    coach_node = CoachNode(
+        coach_graph=create_react_agent(
+            model=_make_llm(config.agents.main.model),
+            tools=_TOOLS,
+            prompt=fetch_prompt(
+                "money-coach-main",
+                fallback=config.agents.main.prompts.instruction,
+            ),
+        )
     )
-
-    def coach_node(state: State, config: RunnableConfig) -> dict:
-        result = coach_graph.invoke({"messages": state["messages"]}, config=config)
-        return {"messages": result["messages"]}
 
     def _route_after_clarify(state: State) -> str:
         return END if state.get("needs_clarification") else "coach"
