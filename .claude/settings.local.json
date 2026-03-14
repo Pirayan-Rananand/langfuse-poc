@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(uv sync:*)",
-      "WebFetch(domain:langfuse.com)"
+      "WebFetch(domain:langfuse.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

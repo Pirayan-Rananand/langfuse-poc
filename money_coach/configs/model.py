@@ -13,7 +13,10 @@ class AgentConfig(BaseModel):
 
 
 class AgentsConfig(BaseModel):
-    clarifier: AgentConfig
+    emotional_gate: AgentConfig
+    comfort: AgentConfig
+    assessment: AgentConfig
+    classifier: AgentConfig
     main: AgentConfig
 
 

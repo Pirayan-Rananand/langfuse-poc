@@ -18,7 +18,7 @@ Environment variables (all optional — handler is a no-op when absent):
 
     LANGFUSE_SECRET_KEY   sk-lf-...
     LANGFUSE_PUBLIC_KEY   pk-lf-...
-    LANGFUSE_HOST         https://cloud.langfuse.com  (default)
+    LANGFUSE_ฺBASE_URL     https://cloud.langfuse.com  (default)
 """
 
 from langfuse import get_client
