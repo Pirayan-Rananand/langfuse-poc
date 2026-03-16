@@ -1,0 +1,166 @@
+name: Prompt Promotion Pipeline (Reusable)
+
+# ---------------------------------------------------------------------------
+# Reusable 3-job pipeline for promoting a Langfuse prompt to prod safely.
+#
+#  sync-to-prod  — POST prompt to prod Langfuse with labels: [] (unlabeled)
+#                  Outputs: prompt_version, prompt_name
+#  auto-eval     — Seed dataset (idempotent) → run candidate vs baseline eval
+#                  Outputs: eval_passed = true | false
+#  tag-canary    — Only when eval_passed=true: assign "canary" label in prod
+#
+# Call this workflow from any trigger file:
+#
+#   jobs:
+#     promote:
+#       uses: ./.github/workflows/prompt-promotion-pipeline.yaml
+#       with:
+#         prompt_json: ${{ toJson(github.event.client_payload.prompt) }}
+#       secrets: inherit
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_call:
+    inputs:
+      prompt_json:
+        description: "Full Langfuse prompt object serialised as a JSON string"
+        type: string
+        required: true
+      threshold:
+        description: "Composite score multiplier candidate must meet to pass eval (e.g. 1.03)"
+        type: string
+        required: false
+        default: "1.03"
+      seed_max_items:
+        description: "Maximum number of traces to seed into the eval dataset"
+        type: number
+        required: false
+        default: 50
+    secrets:
+      LANGFUSE_SECRET_KEY:
+        required: true
+      LANGFUSE_PUBLIC_KEY:
+        required: true
+      LANGFUSE_PROD_PUBLIC_KEY:
+        required: true
+      LANGFUSE_PROD_SECRET_KEY:
+        required: true
+      OPENROUTER_API_KEY:
+        required: true
+    outputs:
+      prompt_name:
+        description: "Name of the synced prompt"
+        value: ${{ jobs.sync-to-prod.outputs.prompt_name }}
+      prompt_version:
+        description: "Version number assigned by prod Langfuse"
+        value: ${{ jobs.sync-to-prod.outputs.prompt_version }}
+      eval_passed:
+        description: "Whether the eval passed (true | false)"
+        value: ${{ jobs.auto-eval.outputs.eval_passed }}
+
+jobs:
+
+  # -------------------------------------------------------------------------
+  # 1. Sync prompt to prod (without any label)
+  # -------------------------------------------------------------------------
+  sync-to-prod:
+    runs-on: ubuntu-latest
+    outputs:
+      prompt_version: ${{ steps.sync.outputs.prompt_version }}
+      prompt_name: ${{ steps.sync.outputs.prompt_name }}
+    steps:
+      - name: Sync prompt to prod (no label)
+        id: sync
+        env:
+          LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
+          LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
+          PROMPT_JSON: ${{ inputs.prompt_json }}
+        run: |
+          PROMPT_PAYLOAD=$(echo "${PROMPT_JSON}" | jq '{
+            name: .name,
+            type: .type,
+            prompt: .prompt,
+            labels: [],
+            config: .config,
+            tags: .tags,
+            commitMessage: .commitMessage
+          }')
+
+          RESPONSE=$(curl -f -s -X POST \
+            -u "${LANGFUSE_PROD_PUBLIC_KEY}:${LANGFUSE_PROD_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "${PROMPT_PAYLOAD}" \
+            https://cloud.langfuse.com/api/public/v2/prompts)
+
+          echo "prompt_version=$(echo $RESPONSE | jq '.version')" >> $GITHUB_OUTPUT
+          echo "prompt_name=$(echo $RESPONSE | jq -r '.name')" >> $GITHUB_OUTPUT
+
+  # -------------------------------------------------------------------------
+  # 2. Evaluate candidate vs production baseline
+  # -------------------------------------------------------------------------
+  auto-eval:
+    needs: sync-to-prod
+    runs-on: ubuntu-latest
+    outputs:
+      eval_passed: ${{ steps.run-eval.outputs.eval_passed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Seed dataset from nonprod traces
+        run: |
+          uv run python -m evaluation.seed_dataset \
+            --source nonprod \
+            --max-items ${{ inputs.seed_max_items }} \
+            --skip-if-not-empty
+        env:
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_BASE_URL: https://cloud.langfuse.com
+
+      - name: Run evaluation
+        id: run-eval
+        run: |
+          if uv run python -m evaluation.run_experiment \
+            --candidate-prompt-name "${{ needs.sync-to-prod.outputs.prompt_name }}" \
+            --candidate-version "${{ needs.sync-to-prod.outputs.prompt_version }}" \
+            --baseline-label production \
+            --threshold ${{ inputs.threshold }}; then
+            echo "eval_passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "eval_passed=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          # Dataset source: nonprod
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          # Prompt source: prod
+          LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
+          LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
+          LANGFUSE_BASE_URL: https://cloud.langfuse.com
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+  # -------------------------------------------------------------------------
+  # 3. Assign canary label only when eval passes
+  # -------------------------------------------------------------------------
+  tag-canary:
+    needs: [sync-to-prod, auto-eval]
+    runs-on: ubuntu-latest
+    if: needs.auto-eval.outputs.eval_passed == 'true'
+    steps:
+      - name: Assign canary label in prod
+        env:
+          LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
+          LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
+          PROMPT_NAME: ${{ needs.sync-to-prod.outputs.prompt_name }}
+          PROMPT_VERSION: ${{ needs.sync-to-prod.outputs.prompt_version }}
+        run: |
+          curl -f -s -X PATCH \
+            -u "${LANGFUSE_PROD_PUBLIC_KEY}:${LANGFUSE_PROD_SECRET_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"labels\": [\"canary\"]}" \
+            "https://cloud.langfuse.com/api/public/v2/prompts/${PROMPT_NAME}/versions/${PROMPT_VERSION}/labels"

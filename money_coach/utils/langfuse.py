@@ -41,4 +41,22 @@ def fetch_prompt(name: str, fallback: str) -> str:
             name,
             exc,
         )
-        return fallback
+        return fallback, None
+
+
+def fetch_prompt_by_label(
+    client,
+    name: str,
+    label: str,
+    fallback: str,
+) -> tuple[str, object | None]:
+    """Like fetch_prompt but with explicit client + label. Used by eval pipeline."""
+    try:
+        prompt = client.get_prompt(name, label=label)
+        logger.debug("Loaded prompt '%s' (label=%s) from Langfuse", name, label)
+        return prompt.prompt, prompt
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch '%s' (label=%s): %s — using fallback", name, label, exc
+        )
+        return fallback, None
