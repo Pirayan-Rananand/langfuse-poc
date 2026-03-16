@@ -1,23 +1,23 @@
-"""Money Coach LangGraph agent.
-
-Exports `graph` for langgraph.json.
-
-Flow: START → clarify → END  (asks follow-up questions when context is thin)
-               ↓
-             coach → END  (ReAct agent with financial tools)
-"""
+# Exports `graph` for langgraph.json.
 
 import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 
-from money_coach.chains.clarifier import build_clarifier
 from money_coach.configs import agent_config
 from money_coach.configs.model import AppConfig
-from money_coach.graph.nodes import ClarifyNode, CoachNode
+from money_coach.graph.nodes import (
+    AssessmentNode,
+    ClassifierNode,
+    CoachNode,
+    ComfortNode,
+    EmotionalGateNode,
+    EscalateNode,
+)
 from money_coach.utils import fetch_prompt
 from money_coach.state import State
 from money_coach.agent_tools import (
@@ -38,7 +38,6 @@ _TOOLS = [
 
 
 def _make_llm(model: str) -> ChatOpenAI:
-    # Routes through OpenRouter's OpenAI-compatible endpoint
     return ChatOpenAI(
         model=model,
         temperature=0.3,
@@ -47,16 +46,36 @@ def _make_llm(model: str) -> ChatOpenAI:
     )
 
 
-def build_graph(config: AppConfig):
-    clarify_node = ClarifyNode(
-        clarifier_chain=build_clarifier(
-            llm=_make_llm(config.agents.clarifier.model),
-            system_prompt=fetch_prompt(
-                "money-coach-clarifier",
-                fallback=config.agents.clarifier.prompts.instruction,
-            ),
-        )
+def build_graph(config: AppConfig, checkpointer=None):
+    emotional_gate_node = EmotionalGateNode(
+        llm=_make_llm(config.agents.emotional_gate.model),
+        system_prompt=fetch_prompt(
+            "money-coach-emotional-gate",
+            fallback=config.agents.emotional_gate.prompts.instruction,
+        ),
     )
+    comfort_node = ComfortNode(
+        llm=_make_llm(config.agents.comfort.model),
+        system_prompt=fetch_prompt(
+            "money-coach-comfort",
+            fallback=config.agents.comfort.prompts.instruction,
+        ),
+    )
+    assessment_node = AssessmentNode(
+        llm=_make_llm(config.agents.assessment.model),
+        system_prompt=fetch_prompt(
+            "money-coach-assessment",
+            fallback=config.agents.assessment.prompts.instruction,
+        ),
+    )
+    classifier_node = ClassifierNode(
+        llm=_make_llm(config.agents.classifier.model),
+        system_prompt=fetch_prompt(
+            "money-coach-classifier",
+            fallback=config.agents.classifier.prompts.instruction,
+        ),
+    )
+    escalate_node = EscalateNode()
     coach_node = CoachNode(
         coach_graph=create_react_agent(
             model=_make_llm(config.agents.main.model),
@@ -68,17 +87,59 @@ def build_graph(config: AppConfig):
         )
     )
 
-    def _route_after_clarify(state: State) -> str:
-        return END if state.get("needs_clarification") else "coach"
+    # --- routing functions ---
+
+    def route_emotional(state: State) -> str:
+        if state.get("emotional_state") == "distressed":
+            return "comfort"
+        if state.get("assessment_phase", "not_started") != "completed":
+            return "assessment"
+        if state.get("debt_case") == "red":
+            return "escalate"
+        return "coach"
+
+    def route_assessment(state: State) -> str:
+        return "classifier" if state.get("assessment_phase") == "completed" else END
+
+    def route_case(state: State) -> str:
+        return "escalate" if state.get("debt_case") == "red" else "coach"
+
+    # --- build graph ---
 
     builder = StateGraph(State)
-    builder.add_node("clarify", clarify_node)
+    builder.add_node("emotional_gate", emotional_gate_node)
+    builder.add_node("comfort", comfort_node)
+    builder.add_node("assessment", assessment_node)
+    builder.add_node("classifier", classifier_node)
+    builder.add_node("escalate", escalate_node)
     builder.add_node("coach", coach_node)
-    builder.add_edge(START, "clarify")
-    builder.add_conditional_edges("clarify", _route_after_clarify, {"coach": "coach", END: END})
+
+    builder.add_edge(START, "emotional_gate")
+    builder.add_conditional_edges(
+        "emotional_gate",
+        route_emotional,
+        {
+            "comfort": "comfort",
+            "assessment": "assessment",
+            "escalate": "escalate",
+            "coach": "coach",
+        },
+    )
+    builder.add_edge("comfort", END)
+    builder.add_conditional_edges(
+        "assessment",
+        route_assessment,
+        {"classifier": "classifier", END: END},
+    )
+    builder.add_conditional_edges(
+        "classifier",
+        route_case,
+        {"escalate": "escalate", "coach": "coach"},
+    )
+    builder.add_edge("escalate", END)
     builder.add_edge("coach", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
-graph = build_graph(agent_config)
+graph = build_graph(agent_config).with_config({"callbacks": [CallbackHandler()]})

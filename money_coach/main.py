@@ -8,12 +8,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from money_coach.graph import graph  # noqa: E402 – must come after load_dotenv
+from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
+
+from money_coach.graph.graph import build_graph  # noqa: E402 – must come after load_dotenv
+from money_coach.configs import agent_config  # noqa: E402
 from money_coach.dependencies import get_langfuse_handler, langfuse_client  # noqa: E402
+
+# CLI needs its own checkpointer for multi-turn state persistence.
+# LangGraph API (langgraph dev) provides its own checkpointer, so graph.py
+# exports the graph without one.
+_graph = build_graph(agent_config, checkpointer=MemorySaver())
 
 
 def main():
     print("Money Coach CLI — type 'quit' or 'exit' to stop.\n")
+    thread_id = "cli-session-1"
     while True:
         try:
             user_input = input("You: ").strip()
@@ -28,9 +37,12 @@ def main():
         if not user_input:
             continue
 
-        result = graph.invoke(
+        result = _graph.invoke(
             {"messages": [{"role": "user", "content": user_input}]},
-            config={"callbacks": [get_langfuse_handler()]},
+            config={
+                "configurable": {"thread_id": thread_id},
+                "callbacks": [get_langfuse_handler()],
+            },
         )
         langfuse_client.flush()
         last_message = result["messages"][-1]
