@@ -19,12 +19,13 @@ class ClassificationResult(BaseModel):
 
 
 class ClassifierNode:
-    def __init__(self, llm: BaseChatModel, system_prompt: str) -> None:
+    def __init__(self, llm: BaseChatModel, system_prompt: str, langfuse_prompt=None) -> None:
         structured_llm = llm.with_structured_output(ClassificationResult)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("placeholder", "{messages}"),
-        ])
+        metadata = {"langfuse_prompt": langfuse_prompt} if langfuse_prompt else {}
+        prompt = ChatPromptTemplate(
+            [("system", system_prompt), ("placeholder", "{messages}")],
+            metadata=metadata,
+        )
         self._chain = prompt | structured_llm
 
     def __call__(self, state: State, config: RunnableConfig) -> dict:

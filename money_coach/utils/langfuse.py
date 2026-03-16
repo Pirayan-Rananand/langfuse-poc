@@ -28,17 +28,20 @@ def _prompt_label() -> str:
     return _ENV_TO_LABEL.get(env, "production")
 
 
-def fetch_prompt(name: str, fallback: str) -> str:
-    """Return prompt text from Langfuse, falling back to `fallback` on any error."""
+def fetch_prompt(name: str, fallback: str) -> tuple[str, object | None]:
+    """Return (prompt_text, langfuse_prompt_object) from Langfuse.
+
+    Falls back to (fallback, None) on any error — no trace link is created in that case.
+    """
     try:
         label = _prompt_label()
         prompt = get_client().get_prompt(name, label=label)
         logger.debug("Loaded prompt '%s' (label=%s) from Langfuse", name, label)
-        return prompt.prompt
+        return prompt.prompt, prompt
     except Exception as exc:
         logger.warning(
             "Could not fetch prompt '%s' from Langfuse (%s) — using fallback",
             name,
             exc,
         )
-        return fallback
+        return fallback, None
