@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 
@@ -141,4 +142,4 @@ def build_graph(config: AppConfig, checkpointer=None):
     return builder.compile(checkpointer=checkpointer)
 
 
-graph = build_graph(agent_config)
+graph = build_graph(agent_config).with_config({"callbacks": [CallbackHandler()]})
