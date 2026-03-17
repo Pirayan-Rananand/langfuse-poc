@@ -1,60 +1,31 @@
-name: Langfuse CI (prod)
+name: Langfuse Prompt Sync
+
+# Triggered by Langfuse webhooks when a prompt is labeled "production" in nonprod.
+# Delegates the actual promotion logic to the reusable pipeline workflow.
 
 on:
   repository_dispatch:
     types: [langfuse-prompt-update]
   workflow_dispatch:
+    inputs:
+      prompt_json:
+        description: "Full Langfuse prompt object as JSON (for manual testing)"
+        required: false
+        default: "{}"
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests
-        run: |
-          echo "Testing prompt: ${{ github.event.client_payload.prompt.name }} v${{ github.event.client_payload.prompt.version }}"
-          # Add your test commands
-          # npm test
-          # python -m pytest
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    if: contains(github.event.client_payload.prompt.labels, 'production')
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to production
-        run: |
-          echo "Deploying ${{ github.event.client_payload.prompt.name }} v${{ github.event.client_payload.prompt.version }}"
-          # Your deployment commands
-
-      # Example: Access webhook data in your workflow
-      - name: Process prompt data
-        run: |
-          echo "Action: ${{ github.event.client_payload.action }}"
-          echo "Prompt: ${{ github.event.client_payload.prompt.name }}"
-          echo "Version: ${{ github.event.client_payload.prompt.version }}"
-          echo "Labels: ${{ github.event.client_payload.prompt.labels }}"
-
-      - name: Promote prompt to prod Langfuse project
-        env:
-          LANGFUSE_PROD_PUBLIC_KEY: ${{ secrets.LANGFUSE_PROD_PUBLIC_KEY }}
-          LANGFUSE_PROD_SECRET_KEY: ${{ secrets.LANGFUSE_PROD_SECRET_KEY }}
-          PROMPT_JSON: ${{ toJson(github.event.client_payload.prompt) }}
-        run: |
-          PROMPT_PAYLOAD=$(echo "${PROMPT_JSON}" | \
-            jq '{
-              name: .name,
-              type: .type,
-              prompt: .prompt,
-              labels: ["production"],
-              config: .config,
-              tags: .tags,
-              commitMessage: .commitMessage
-            }')
-
-          curl -f -X POST \
-            -u "${LANGFUSE_PROD_PUBLIC_KEY}:${LANGFUSE_PROD_SECRET_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "${PROMPT_PAYLOAD}" \
-            https://cloud.langfuse.com/api/public/v2/prompts
+  promote:
+    # For repository_dispatch: only run when the nonprod prompt has the production label.
+    # For workflow_dispatch: always run (used for manual testing with prompt_json input).
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.client_payload.prompt.labels, 'production')
+    uses: ./.github/workflows/prompt-promotion-pipeline.yaml
+    with:
+      prompt_json: >-
+        ${{
+          github.event_name == 'repository_dispatch'
+          && toJson(github.event.client_payload.prompt)
+          || inputs.prompt_json
+        }}
+    secrets: inherit
