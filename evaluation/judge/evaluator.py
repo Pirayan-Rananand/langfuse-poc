@@ -50,6 +50,7 @@ def evaluate_response(
     item_input: DatasetItemInput,
     candidate_output: str,
     expected_output: DatasetItemExpectedOutput,
+    callbacks: list | None = None,
 ) -> EvaluationResult:
     """Run the LLM judge and return per-dimension scores + composite."""
     if not candidate_output:
@@ -58,7 +59,8 @@ def evaluate_response(
     prompt_text = build_judge_prompt(item_input, candidate_output, expected_output)
 
     try:
-        response = llm.invoke([HumanMessage(content=prompt_text)])
+        invoke_config = {"callbacks": callbacks} if callbacks else {}
+        response = llm.invoke([HumanMessage(content=prompt_text)], config=invoke_config)
         content = response.content.strip()
 
         # Strip markdown code fences if the model wraps its JSON

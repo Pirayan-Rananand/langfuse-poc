@@ -101,44 +101,40 @@ def build_eval_graph(
 
     # --- build nodes ---
 
-    eg_text, eg_prompt = _get(
+    eg_text, _ = _get(
         "money-coach-emotional-gate",
         app_config.agents.emotional_gate.prompts.instruction,
     )
     emotional_gate_node = EmotionalGateNode(
         llm=_make_eval_llm(app_config.agents.emotional_gate.model),
         system_prompt=eg_text,
-        langfuse_prompt=eg_prompt,
     )
 
-    comfort_text, comfort_prompt = _get(
+    comfort_text, _ = _get(
         "money-coach-comfort",
         app_config.agents.comfort.prompts.instruction,
     )
     comfort_node = ComfortNode(
         llm=_make_eval_llm(app_config.agents.comfort.model),
         system_prompt=comfort_text,
-        langfuse_prompt=comfort_prompt,
     )
 
-    assessment_text, assessment_prompt = _get(
+    assessment_text, _ = _get(
         "money-coach-assessment",
         app_config.agents.assessment.prompts.instruction,
     )
     assessment_node = AssessmentNode(
         llm=_make_eval_llm(app_config.agents.assessment.model),
         system_prompt=assessment_text,
-        langfuse_prompt=assessment_prompt,
     )
 
-    classifier_text, classifier_prompt = _get(
+    classifier_text, _ = _get(
         "money-coach-classifier",
         app_config.agents.classifier.prompts.instruction,
     )
     classifier_node = ClassifierNode(
         llm=_make_eval_llm(app_config.agents.classifier.model),
         system_prompt=classifier_text,
-        langfuse_prompt=classifier_prompt,
     )
 
     escalate_node = EscalateNode()

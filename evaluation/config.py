@@ -13,6 +13,8 @@ class EvalConfig:
         default_factory=lambda: float(os.getenv("EVAL_PROMOTION_THRESHOLD", "1.03"))
     )
     judge_model: str = field(
-        default_factory=lambda: os.getenv("EVAL_JUDGE_MODEL", "google/gemini-2.5-flash")
+        default_factory=lambda: os.getenv(
+            "EVAL_JUDGE_MODEL", "google/gemini-3-flash-preview"
+        )
     )
     max_dataset_items: int = 50

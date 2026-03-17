@@ -1,24 +1,5 @@
 name: Prompt Promotion Pipeline (Reusable)
 
-# ---------------------------------------------------------------------------
-# Reusable 3-job pipeline for promoting a Langfuse prompt to prod safely.
-#
-#  sync-to-prod  — POST prompt to prod Langfuse with labels: [] (unlabeled)
-#                  Outputs: prompt_version, prompt_name
-#  auto-eval     — Seed dataset (idempotent) → run candidate vs baseline eval
-#                  Outputs: eval_passed = true | false
-#  tag-canary    — Only when eval_passed=true: assign "canary" label in prod
-#
-# Call this workflow from any trigger file:
-#
-#   jobs:
-#     promote:
-#       uses: ./.github/workflows/prompt-promotion-pipeline.yaml
-#       with:
-#         prompt_json: ${{ toJson(github.event.client_payload.prompt) }}
-#       secrets: inherit
-# ---------------------------------------------------------------------------
-
 on:
   workflow_call:
     inputs:
@@ -59,10 +40,7 @@ on:
         value: ${{ jobs.auto-eval.outputs.eval_passed }}
 
 jobs:
-
-  # -------------------------------------------------------------------------
   # 1. Sync prompt to prod (without any label)
-  # -------------------------------------------------------------------------
   sync-to-prod:
     runs-on: ubuntu-latest
     outputs:
@@ -95,9 +73,7 @@ jobs:
           echo "prompt_version=$(echo $RESPONSE | jq '.version')" >> $GITHUB_OUTPUT
           echo "prompt_name=$(echo $RESPONSE | jq -r '.name')" >> $GITHUB_OUTPUT
 
-  # -------------------------------------------------------------------------
   # 2. Evaluate candidate vs production baseline
-  # -------------------------------------------------------------------------
   auto-eval:
     needs: sync-to-prod
     runs-on: ubuntu-latest
@@ -144,9 +120,7 @@ jobs:
           LANGFUSE_BASE_URL: https://cloud.langfuse.com
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-  # -------------------------------------------------------------------------
   # 3. Assign canary label only when eval passes
-  # -------------------------------------------------------------------------
   tag-canary:
     needs: [sync-to-prod, auto-eval]
     runs-on: ubuntu-latest

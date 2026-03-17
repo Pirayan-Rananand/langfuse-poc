@@ -32,36 +32,53 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def _log_run_to_langfuse(
+def _judge_and_log(
     nonprod_client,
+    judge_llm,
     item,
     run_name: str,
     output: str,
-    eval_result,
-) -> None:
-    """Create a trace in nonprod Langfuse linked to the dataset item run."""
+    expected,
+    evaluate_fn,
+) -> "EvaluationResult":
+    """Run the LLM judge inside a Langfuse trace, score it, and link to the dataset item."""
+    from langfuse.langchain import CallbackHandler
+
+    eval_result = None
+    trace_id = None
     try:
-        trace = nonprod_client.trace(
+        handler = CallbackHandler()
+        with nonprod_client.start_as_current_observation(
+            as_type="span",
             name="eval-run",
             input=item.input,
             output={"response": output},
             metadata={"run_name": run_name, "dataset_item_id": item.id},
-        )
-        # Link trace to dataset item run (Langfuse Experiments UI)
-        try:
-            item.link(trace, run_name=run_name)
-        except AttributeError:
-            pass  # older SDK version without item.link
+        ):
+            trace_id = nonprod_client.get_current_trace_id()
+            eval_result = evaluate_fn(
+                judge_llm, item.input, output, expected, callbacks=[handler]
+            )
 
+        if trace_id is None:
+            logger.warning("Could not obtain trace_id — skipping score logging")
+            return eval_result
+
+        # Link trace to dataset item run (Langfuse Experiments UI)
+        nonprod_client.api.dataset_run_items.create(
+            run_name=run_name,
+            dataset_item_id=item.id,
+            trace_id=trace_id,
+        )
         for ds in eval_result.dimension_scores:
-            nonprod_client.score(
-                trace_id=trace.id,
+            nonprod_client.create_score(
+                trace_id=trace_id,
                 name=ds.name,
                 value=ds.score,
                 comment=ds.reasoning,
             )
-        nonprod_client.score(
-            trace_id=trace.id,
+        nonprod_client.create_score(
+            trace_id=trace_id,
             name="composite",
             value=round(eval_result.composite_score * 10, 3),
             comment=f"Weighted composite ({run_name})",
@@ -69,6 +86,8 @@ def _log_run_to_langfuse(
         nonprod_client.flush()
     except Exception as exc:
         logger.warning("Failed to log scores to Langfuse: %s", exc)
+
+    return eval_result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -207,16 +226,16 @@ def main(argv: list[str] | None = None) -> int:
 
         expected = item.expected_output or {"final_message": "", "terminal_node": "coach"}
 
-        # Judge
-        baseline_eval = evaluate_response(judge_llm, item.input, baseline_output, expected)
-        candidate_eval = evaluate_response(judge_llm, item.input, candidate_output, expected)
+        # Judge inside Langfuse trace so the LLM call is visible in the UI
+        baseline_eval = _judge_and_log(
+            nonprod_client, judge_llm, item, baseline_run_name, baseline_output, expected, evaluate_response
+        )
+        candidate_eval = _judge_and_log(
+            nonprod_client, judge_llm, item, run_name, candidate_output, expected, evaluate_response
+        )
 
         baseline_results[item.id] = baseline_eval
         candidate_results[item.id] = candidate_eval
-
-        # Log to Langfuse
-        _log_run_to_langfuse(nonprod_client, item, baseline_run_name, baseline_output, baseline_eval)
-        _log_run_to_langfuse(nonprod_client, item, run_name, candidate_output, candidate_eval)
 
         logger.info(
             "  baseline=%.3f  candidate=%.3f  delta=%+.3f",

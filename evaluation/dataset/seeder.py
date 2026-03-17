@@ -204,9 +204,11 @@ class TraceSeeder:
 
         while seeded < self.max_items:
             try:
-                response = self.client.fetch_traces(
+                response = self.client.api.trace.list(
                     page=page,
-                    limit=min(50, self.max_items * 3),  # over-fetch to account for filtering
+                    limit=min(
+                        50, self.max_items * 3
+                    ),  # over-fetch to account for filtering
                 )
             except Exception as exc:
                 logger.error("Failed to fetch traces (page=%d): %s", page, exc)
@@ -252,7 +254,11 @@ class TraceSeeder:
                         stats.items_seeded += 1
                         logger.debug("Seeded item from trace %s", trace.id)
                     except Exception as exc:
-                        logger.warning("Failed to create dataset item from trace %s: %s", trace.id, exc)
+                        logger.warning(
+                            "Failed to create dataset item from trace %s: %s",
+                            trace.id,
+                            exc,
+                        )
 
             if not response.meta or page >= response.meta.total_pages:
                 break
