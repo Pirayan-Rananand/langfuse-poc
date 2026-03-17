@@ -8,11 +8,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
+from langgraph.checkpoint.memory import MemorySaver
 
-from money_coach.graph.graph import build_graph  # noqa: E402 – must come after load_dotenv
-from money_coach.configs import agent_config  # noqa: E402
-from money_coach.dependencies import get_langfuse_handler, langfuse_client  # noqa: E402
+from money_coach.graph.graph import build_graph
+from money_coach.configs import agent_config
+from money_coach.dependencies import get_langfuse_handler, langfuse_client
 
 # CLI needs its own checkpointer for multi-turn state persistence.
 # LangGraph API (langgraph dev) provides its own checkpointer, so graph.py
@@ -41,6 +41,7 @@ def main():
             {"messages": [{"role": "user", "content": user_input}]},
             config={
                 "configurable": {"thread_id": thread_id},
+                "metadata": {"langfuse_session_id": thread_id},
                 "callbacks": [get_langfuse_handler()],
             },
         )

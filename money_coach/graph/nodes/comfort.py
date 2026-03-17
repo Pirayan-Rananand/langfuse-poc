@@ -7,11 +7,12 @@ from money_coach.state import State
 
 
 class ComfortNode:
-    def __init__(self, llm: BaseChatModel, system_prompt: str) -> None:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("placeholder", "{messages}"),
-        ])
+    def __init__(self, llm: BaseChatModel, system_prompt: str, langfuse_prompt=None) -> None:
+        metadata = {"langfuse_prompt": langfuse_prompt} if langfuse_prompt else {}
+        prompt = ChatPromptTemplate(
+            [("system", system_prompt), ("placeholder", "{messages}")],
+            metadata=metadata,
+        )
         self._chain = prompt | llm
 
     def __call__(self, state: State, config: RunnableConfig) -> dict:
