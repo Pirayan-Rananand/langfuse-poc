@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import Optional
 
 
 class PromptConfig(BaseModel):
@@ -15,9 +14,12 @@ class AgentConfig(BaseModel):
 class AgentsConfig(BaseModel):
     emotional_gate: AgentConfig
     comfort: AgentConfig
-    assessment: AgentConfig
-    classifier: AgentConfig
-    main: AgentConfig
+    welcome: AgentConfig
+    debt_inventory: AgentConfig
+    cash_flow: AgentConfig
+    triage: AgentConfig
+    strategy_builder: AgentConfig
+    escalate: AgentConfig
 
 
 class AppConfig(BaseModel):

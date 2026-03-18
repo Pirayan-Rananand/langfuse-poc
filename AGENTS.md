@@ -1,10 +1,5 @@
 # AGENTS.md
 
-Shared instructions for AI coding agents (Claude Code, Gemini CLI, etc.).
-Both `CLAUDE.md` and `GEMINI.md` symlink here.
-
----
-
 ## Project: Money Coach
 
 Thai-language financial coaching agent built with LangGraph + Langfuse.

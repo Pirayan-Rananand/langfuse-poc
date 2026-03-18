@@ -1,10 +1,13 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(uv sync:*)",
-      "WebFetch(domain:langfuse.com)",
-      "WebFetch(domain:github.com)",
-      "mcp__codegraph__codegraph_files"
-    ]
-  }
+    "permissions": {
+        "allow": [
+            "Bash(uv sync:*)",
+            "WebFetch(domain:langfuse.com)",
+            "WebFetch(domain:github.com)",
+            "mcp__codegraph__codegraph_files"
+        ]
+    },
+    "env": {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    }
 }

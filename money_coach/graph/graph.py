@@ -12,12 +12,14 @@ from langgraph.prebuilt import create_react_agent
 from money_coach.configs import agent_config
 from money_coach.configs.model import AppConfig
 from money_coach.graph.nodes import (
-    AssessmentNode,
-    ClassifierNode,
-    CoachNode,
+    CashFlowNode,
     ComfortNode,
+    DebtInventoryNode,
     EmotionalGateNode,
     EscalateNode,
+    StrategyBuilderNode,
+    TriageNode,
+    WelcomeNode,
 )
 from money_coach.utils import fetch_prompt
 from money_coach.state import State
@@ -25,16 +27,16 @@ from money_coach.agent_tools import (
     budget_calculator,
     debt_payoff_calculator,
     dti_ratio_calculator,
-    financial_advice_helper,
+    financial_health_kpi,
 )
 
 load_dotenv()
 
-_TOOLS = [
+_STRATEGY_TOOLS = [
     budget_calculator,
     debt_payoff_calculator,
     dti_ratio_calculator,
-    financial_advice_helper,
+    financial_health_kpi,
 ]
 
 
@@ -49,6 +51,7 @@ def _make_llm(model: str) -> ChatOpenAI:
 
 
 def build_graph(config: AppConfig, checkpointer=None):
+    # --- Emotional Gate (kept) ---
     eg_text, eg_prompt = fetch_prompt(
         "money-coach-emotional-gate",
         fallback=config.agents.emotional_gate.prompts.instruction,
@@ -59,6 +62,7 @@ def build_graph(config: AppConfig, checkpointer=None):
         langfuse_prompt=eg_prompt,
     )
 
+    # --- Comfort (kept) ---
     comfort_text, comfort_prompt = fetch_prompt(
         "money-coach-comfort",
         fallback=config.agents.comfort.prompts.instruction,
@@ -69,95 +73,156 @@ def build_graph(config: AppConfig, checkpointer=None):
         langfuse_prompt=comfort_prompt,
     )
 
-    assessment_text, assessment_prompt = fetch_prompt(
-        "money-coach-assessment",
-        fallback=config.agents.assessment.prompts.instruction,
+    # --- Welcome (new — Phase 1) ---
+    welcome_text, welcome_prompt = fetch_prompt(
+        "money-coach-welcome",
+        fallback=config.agents.welcome.prompts.instruction,
     )
-    assessment_node = AssessmentNode(
-        llm=_make_llm(config.agents.assessment.model),
-        system_prompt=assessment_text,
-        langfuse_prompt=assessment_prompt,
-    )
-
-    classifier_text, classifier_prompt = fetch_prompt(
-        "money-coach-classifier",
-        fallback=config.agents.classifier.prompts.instruction,
-    )
-    classifier_node = ClassifierNode(
-        llm=_make_llm(config.agents.classifier.model),
-        system_prompt=classifier_text,
-        langfuse_prompt=classifier_prompt,
+    welcome_node = WelcomeNode(
+        llm=_make_llm(config.agents.welcome.model),
+        system_prompt=welcome_text,
+        langfuse_prompt=welcome_prompt,
     )
 
+    # --- Debt Inventory (new — Phase 2) ---
+    di_text, di_prompt = fetch_prompt(
+        "money-coach-debt-inventory",
+        fallback=config.agents.debt_inventory.prompts.instruction,
+    )
+    debt_inventory_node = DebtInventoryNode(
+        llm=_make_llm(config.agents.debt_inventory.model),
+        system_prompt=di_text,
+        langfuse_prompt=di_prompt,
+    )
+
+    # --- Cash Flow (new — Phase 3) ---
+    cf_text, cf_prompt = fetch_prompt(
+        "money-coach-cash-flow",
+        fallback=config.agents.cash_flow.prompts.instruction,
+    )
+    cash_flow_node = CashFlowNode(
+        llm=_make_llm(config.agents.cash_flow.model),
+        system_prompt=cf_text,
+        langfuse_prompt=cf_prompt,
+    )
+
+    # --- Triage (new — pure computation, replaces classifier) ---
+    triage_node = TriageNode()
+
+    # --- Escalate (updated) ---
     escalate_node = EscalateNode()
 
-    main_text, main_prompt = fetch_prompt(
-        "money-coach-main",
-        fallback=config.agents.main.prompts.instruction,
+    # --- Strategy Builder (new — Phase 4, replaces coach) ---
+    sb_text, sb_prompt = fetch_prompt(
+        "money-coach-strategy-builder",
+        fallback=config.agents.strategy_builder.prompts.instruction,
     )
-    coach_prompt_template = ChatPromptTemplate(
-        [("system", main_text), ("placeholder", "{messages}")],
-        metadata={"langfuse_prompt": main_prompt} if main_prompt else {},
+    sb_prompt_template = ChatPromptTemplate(
+        [("system", sb_text), ("placeholder", "{messages}")],
+        metadata={"langfuse_prompt": sb_prompt} if sb_prompt else {},
     )
-    coach_node = CoachNode(
-        coach_graph=create_react_agent(
-            model=_make_llm(config.agents.main.model),
-            tools=_TOOLS,
-            prompt=coach_prompt_template,
+    strategy_builder_node = StrategyBuilderNode(
+        strategy_graph=create_react_agent(
+            model=_make_llm(config.agents.strategy_builder.model),
+            tools=_STRATEGY_TOOLS,
+            prompt=sb_prompt_template,
         )
     )
 
-    # --- routing functions ---
+    # --- Routing functions ---
 
     def route_emotional(state: State) -> str:
         if state.get("emotional_state") == "distressed":
             return "comfort"
-        if state.get("assessment_phase", "not_started") != "completed":
-            return "assessment"
-        if state.get("debt_case") == "red":
+        return "phase_router"
+
+    def route_phase(state: State) -> str:
+        phase = state.get("journey_phase") or "welcome"
+        if phase == "welcome":
+            return "welcome"
+        elif phase == "debt_inventory":
+            return "debt_inventory"
+        elif phase == "cash_flow":
+            return "cash_flow"
+        elif phase == "strategy":
+            return "strategy_builder"
+        return "welcome"  # fallback
+
+    def route_welcome_result(state: State) -> str:
+        if state.get("triage_classification") == "red":
             return "escalate"
-        return "coach"
+        return END
 
-    def route_assessment(state: State) -> str:
-        return "classifier" if state.get("assessment_phase") == "completed" else END
+    def route_cash_flow_result(state: State) -> str:
+        if state.get("cash_flow_complete"):
+            return "triage"
+        return END
 
-    def route_case(state: State) -> str:
-        return "escalate" if state.get("debt_case") == "red" else "coach"
+    def route_triage(state: State) -> str:
+        if state.get("triage_classification") == "red":
+            return "escalate"
+        return END
 
-    # --- build graph ---
+    # --- Build graph ---
 
     builder = StateGraph(State)
     builder.add_node("emotional_gate", emotional_gate_node)
     builder.add_node("comfort", comfort_node)
-    builder.add_node("assessment", assessment_node)
-    builder.add_node("classifier", classifier_node)
+    builder.add_node("welcome", welcome_node)
+    builder.add_node("debt_inventory", debt_inventory_node)
+    builder.add_node("cash_flow", cash_flow_node)
+    builder.add_node("triage", triage_node)
     builder.add_node("escalate", escalate_node)
-    builder.add_node("coach", coach_node)
+    builder.add_node("strategy_builder", strategy_builder_node)
 
     builder.add_edge(START, "emotional_gate")
     builder.add_conditional_edges(
         "emotional_gate",
         route_emotional,
+        {"comfort": "comfort", "phase_router": "phase_router"},
+    )
+
+    # Phase router is a virtual node (conditional edges from emotional_gate)
+    # We implement it as conditional edges using a routing node
+    def _phase_router_noop(state: State, config):
+        return {}
+
+    builder.add_node("phase_router", _phase_router_noop)
+    builder.add_conditional_edges(
+        "phase_router",
+        route_phase,
         {
-            "comfort": "comfort",
-            "assessment": "assessment",
-            "escalate": "escalate",
-            "coach": "coach",
+            "welcome": "welcome",
+            "debt_inventory": "debt_inventory",
+            "cash_flow": "cash_flow",
+            "strategy_builder": "strategy_builder",
         },
     )
+
     builder.add_edge("comfort", END)
+
     builder.add_conditional_edges(
-        "assessment",
-        route_assessment,
-        {"classifier": "classifier", END: END},
+        "welcome",
+        route_welcome_result,
+        {"escalate": "escalate", END: END},
     )
+
+    builder.add_edge("debt_inventory", END)
+
     builder.add_conditional_edges(
-        "classifier",
-        route_case,
-        {"escalate": "escalate", "coach": "coach"},
+        "cash_flow",
+        route_cash_flow_result,
+        {"triage": "triage", END: END},
     )
+
+    builder.add_conditional_edges(
+        "triage",
+        route_triage,
+        {"escalate": "escalate", END: END},
+    )
+
     builder.add_edge("escalate", END)
-    builder.add_edge("coach", END)
+    builder.add_edge("strategy_builder", END)
 
     return builder.compile(checkpointer=checkpointer)
 
