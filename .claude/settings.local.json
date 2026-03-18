@@ -3,7 +3,8 @@
     "allow": [
       "Bash(uv sync:*)",
       "WebFetch(domain:langfuse.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "mcp__codegraph__codegraph_files"
     ]
   }
 }
