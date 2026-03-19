@@ -13,6 +13,10 @@ default:
 dev:
     uv run langgraph dev
 
+# Start FastAPI server (API at http://127.0.0.1:8000, docs at /docs)
+serve:
+    uv run uvicorn money_coach.api.server:app --reload --port 8000
+
 # Run CLI smoke-test loop (interactive chat)
 chat:
     uv run python -m money_coach.main

@@ -9,7 +9,8 @@ Thai-language financial coaching agent built with LangGraph + Langfuse.
 - **Orchestration**: LangGraph (StateGraph with conditional routing)
 - **Observability**: Langfuse (tracing, prompt management, evaluation datasets)
 - **Task runner**: `just` (see `justfile` for all recipes)
-- **Entry point**: `money_coach/graph/graph.py` exports `graph` for `langgraph dev`
+- **Entry point (LangGraph Studio)**: `money_coach/graph/graph.py` exports `graph` for `langgraph dev`
+- **Entry point (API)**: `money_coach/api/server.py` exports `app` for `uvicorn`
 
 ---
 
@@ -17,6 +18,7 @@ Thai-language financial coaching agent built with LangGraph + Langfuse.
 
 ```bash
 just dev          # LangGraph Studio at http://127.0.0.1:2024
+just serve        # FastAPI server at http://127.0.0.1:8000 (docs at /docs)
 just chat         # CLI smoke-test loop
 just eval <prompt> <version> [threshold]   # eval a prompt version vs production
 just eval-label development production     # eval by label
@@ -117,6 +119,40 @@ Langfuse webhook (nonprod "production" label)
 - **Prod** (`LANGFUSE_PROD_SECRET_KEY` / `LANGFUSE_PROD_PUBLIC_KEY`): production prompt versions
 - Factory functions in `evaluation/langfuse_clients.py`
 
+### FastAPI Server (MVP Frontend)
+
+Three service layers with clear boundaries:
+
+```
+money_coach/api/            ← API team: HTTP interface
+  server.py                   App factory (FastAPI + middleware + routes)
+  schemas.py                  Pydantic request/response models
+  deps.py                     Dependency injection (graph, sessions, DB)
+  routes/
+    chat.py                   POST /api/chat, POST /api/chat/stream (SSE)
+    sessions.py               GET/DELETE /api/sessions/{id}, GET .../history
+    health.py                 GET /api/health
+
+money_coach/middleware/     ← Middleware team: cross-cutting concerns
+  session.py                  SessionStore ABC + InMemorySessionStore
+  tracing.py                  Langfuse ASGI request tracing
+
+money_coach/infrastructure/ ← Infrastructure team: GCP / persistence
+  database.py                 Cloud SQL connection pool (placeholder)
+  checkpointer.py             LangGraph checkpointer factory (MemorySaver → PostgresSaver)
+```
+
+**API endpoints:**
+- `POST /api/chat` — send message, get full response + state metadata
+- `POST /api/chat/stream` — send message, get SSE token stream
+- `GET /api/sessions/{id}/history` — conversation history + graph state
+- `DELETE /api/sessions/{id}` — clear session
+- `GET /api/health` — health check with DB status
+
+**Session flow:** Sessions auto-create on first chat message. `session_id` maps to both the LangGraph `thread_id` (checkpointer) and Langfuse `session_id` (tracing).
+
+**Running:** `just serve` or `uv run uvicorn money_coach.api.server:app --reload --port 8000`
+
 ---
 
 ## Evaluation Pipeline
@@ -215,6 +251,15 @@ Type checking is available via the Pyright plugin. Use `getDiagnostics` to check
 | `money_coach/configs/model.py` | Pydantic config models |
 | `money_coach/agent_tools/financial.py` | 4 pure-Python financial tools |
 | `money_coach/dependencies.py` | Langfuse client singleton + handler factory |
+| `money_coach/api/server.py` | FastAPI app factory, exports `app` |
+| `money_coach/api/routes/chat.py` | Chat endpoints (sync + SSE stream) |
+| `money_coach/api/routes/sessions.py` | Session CRUD endpoints |
+| `money_coach/api/deps.py` | FastAPI DI (graph, session store, DB pool) |
+| `money_coach/api/schemas.py` | API request/response Pydantic models |
+| `money_coach/middleware/session.py` | SessionStore ABC + InMemorySessionStore |
+| `money_coach/middleware/tracing.py` | Langfuse ASGI middleware |
+| `money_coach/infrastructure/database.py` | Cloud SQL pool (placeholder) |
+| `money_coach/infrastructure/checkpointer.py` | LangGraph checkpointer factory |
 | `evaluation/run_experiment.py` | Eval CLI — orchestrates seed, run, judge, compare |
 | `evaluation/judge/dimensions.py` | 5 eval dimensions with weights |
 | `evaluation/judge/evaluator.py` | LLM judge implementation |
@@ -246,6 +291,7 @@ See `.env.example` for the full list. Key groups:
 - **Langfuse prod**: `LANGFUSE_PROD_SECRET_KEY`, `LANGFUSE_PROD_PUBLIC_KEY` (CI/CD only)
 - **Langfuse config**: `LANGFUSE_BASE_URL`, `LANGFUSE_TRACING_ENVIRONMENT`, `LANGFUSE_TIMEOUT`
 - **Eval**: `EVAL_DATASET_NAME`, `EVAL_PROMOTION_THRESHOLD`, `EVAL_JUDGE_MODEL`
+- **Database**: `DATABASE_URL` (Cloud SQL — leave blank for local dev, falls back to in-memory)
 - **GitHub**: `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`
 
-All observability is no-op when env vars are absent. Safe to run without any keys (falls back to agents.yaml for prompts).
+All observability is no-op when env vars are absent. Safe to run without any keys (falls back to agents.yaml for prompts). Database is optional — falls back to in-memory stores.
